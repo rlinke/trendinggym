@@ -16,7 +16,7 @@ from pandas_datareader import data
 
 def main():
     
-    filepath = "/data/test_stock.csv"
+    filepath = "./data/test_stock.csv"
     
     ticker_list = ["^GSPC"]
     
@@ -37,13 +37,18 @@ def main():
         
     # Read historical stock data
     df_stock_data = data.DataReader(ticker_list, 'yahoo', start_date, end_date)
+    
+    # Rename multi index columns
+    df_stock_data.columns = [col+'_'+ticker for ticker in ticker_list 
+                             for col in list(df_stock_data.columns.get_level_values(0))]
 
     # Append new stock data
     result = df.append(df_stock_data, sort=False)
     
     result.to_csv(filepath)
         
-    result.plot()
+    result.drop(columns=[s for s in df_stock_data.columns if "Volume" in s] ).plot()
+    
 	
 if __name__ == '__main__':
 	main()
