@@ -1,1 +1,2 @@
 pytrends
+pandas_datareader
