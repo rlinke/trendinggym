@@ -25,7 +25,7 @@ def main():
     
     
     if os.path.isfile(filepath):
-        df = pd.read_csv(filepath, index_col=0, header=[0,1])
+        df = pd.read_csv(filepath, index_col=0, header=0)
         df.index = pd.to_datetime(df.index)
         start_date = max(max(df.index), start_date)
         start_date = start_date + pd.Timedelta("1d")
