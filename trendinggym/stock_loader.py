@@ -16,7 +16,7 @@ from pandas_datareader import data
 
 def main():
     
-    filepath = "./data/test_stock.csv"
+    filepath = "./data/stock_chart_data.csv"
     
     ticker_list = ["^GSPC"]
     
