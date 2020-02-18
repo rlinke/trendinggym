@@ -5,7 +5,6 @@ Created on Tue Feb  4 18:27:11 2020
 @author: mk
 """
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import ta
 import numpy as np
@@ -68,6 +67,7 @@ def create_indicators(df_read, list_of_stocks, path):
     return df_data_save
         
 if __name__ == '__main__':
+    
 	create_indicators(df_read, ticker_list, save_path)
     
     
