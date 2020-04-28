@@ -23,6 +23,7 @@ df_read = pd.read_csv(path, index_col=0, header=0)
 
 def preprocessing(df):
     
+    # not finish
     x_list = ['^GSPC_macd','^GSPC_roc','^GSPC_wr','^GSPC_mov','^GSPC_rsi','^GSPC_close']
     
     df_train = df.dropna()
@@ -87,7 +88,7 @@ def mdl_lstm(n_steps, n_features):
      
     return model
 
-# Read data
+# Data preprocessing
 df_X, df_Y = preprocessing(df_read)
 
 n_steps_in = 3 # = lock back
@@ -99,7 +100,7 @@ X = split_sequences_lstm(df_X.values, n_steps_in)
 Y = df_Y.values[n_steps_in-1:]
 Y = Y.reshape((len(Y), 1))
 
-#one hot encoding
+# One-hot-encoding
 Y_en = to_categorical(Y)
 
 # Create and train model
@@ -107,8 +108,8 @@ model = mdl_lstm(n_steps_in, n_features)
 
 history = model.fit(X,Y_en, epochs=200,
                     #validation_data=(X_validate,y_validate),
-                    shuffle=True,
-                    batch_size=1, 
-                    verbose=2)
+                    shuffle = False,
+                    batch_size = n_steps_in, 
+                    verbose = 2)
 
 
