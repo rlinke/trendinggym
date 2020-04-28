@@ -4,11 +4,9 @@ Created on Tue Feb  4 18:27:11 2020
 
 @author: mk
 """
-
 import pandas as pd
 import ta
 import numpy as np
-
 
 filepath = "./data/stock_chart_data.csv"
 save_path = "./data/stock_feature_data.csv"
@@ -47,6 +45,7 @@ def create_indicators(df_read, list_of_stocks, path):
     # forecast = 7: t0 = first index, t_end = real index - 7 - 
     df_y = pd.DataFrame()
     
+    # Better use shift function !!!
     df_y['+7'] = s_close[7:].values
     df_y['+6'] = s_close[6:-1].values
     df_y['+5'] = s_close[5:-2].values
@@ -54,6 +53,8 @@ def create_indicators(df_read, list_of_stocks, path):
     df_y['+3'] = s_close[3:-4].values
     df_y['+2'] = s_close[2:-5].values
     df_y['+1'] = s_close[1:-6].values
+    df_y['0'] = s_close[:-7].values
+    df_y['diff'] = df_y['0'] - df_y['+1']
         
     df_y.index = df_read.index[:-7]
     
