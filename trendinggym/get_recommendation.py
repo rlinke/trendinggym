@@ -1,0 +1,82 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Apr 28 20:26:48 2020
+
+@author: mk
+"""
+
+# Source: https://towardsdatascience.com/parse-thousands-of-stock-recommendations-in-minutes-with-python-6e3e562f156d
+
+import requests
+import pandas as pd 
+from yahoo_fin import stock_info as si 
+from pandas_datareader import DataReader
+import numpy as np
+
+from collections import defaultdict
+
+from datetime import date
+
+today = date.today()
+
+
+lhs_url = 'https://query2.finance.yahoo.com/v10/finance/quoteSummary/'
+rhs_url = '?formatted=true&crumb=swg7qs5y9UP&lang=en-US&region=US&' \
+          'modules=upgradeDowngradeHistory,recommendationTrend,' \
+          'financialData,earningsHistory,earningsTrend,industryTrend&' \
+          'corsDomain=finance.yahoo.com'
+
+
+tickers = si.tickers_sp500()
+
+
+recommendations = []
+recommendationstrend_dict = {}
+
+
+for ticker in tickers:
+
+    df_trend = pd.DataFrame()
+              
+    url =  lhs_url + ticker + rhs_url
+    r = requests.get(url)
+    
+    if not r.ok:
+        recommendation = 6
+    try:
+        
+        result = r.json()['quoteSummary']['result'][0]
+        
+        recommendation = result['financialData']['recommendationMean']['fmt']
+        recommendationstrend = result['recommendationTrend']['trend']
+        
+        m = 0
+        for val in recommendationstrend:
+            
+            df_temp = pd.DataFrame(val, index=[today - pd.DateOffset(months = m)])
+            df_temp['month'] = today.month - m
+            m+=1
+            
+            df_trend = pd.concat([df_trend, df_temp], axis=0)
+        
+    except:
+        recommendation = 6
+    
+    recommendations.append(recommendation)
+    
+    recommendationstrend_dict[ticker] = df_trend
+    
+    
+    
+    print("--------------------------------------------")
+    print ("{} has an average recommendation of: ".format(ticker), recommendation)
+    #time.sleep(0.5)
+    
+    
+    
+    
+dataframe = pd.DataFrame(list(zip(tickers, recommendations)), columns =['Company', 'Recommendations']) 
+dataframe = dataframe.set_index('Company')
+#dataframe.to_csv('recommendations.csv')
+
+#print (df)
