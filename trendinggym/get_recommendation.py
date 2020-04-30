@@ -4,8 +4,7 @@ Created on Tue Apr 28 20:26:48 2020
 
 @author: mk
 """
-
-# Source: https://towardsdatascience.com/parse-thousands-of-stock-recommendations-in-minutes-with-python-6e3e562f156d
+# doku: http://theautomatic.net/yahoo_fin-documentation/
 
 import requests
 import pandas as pd 
@@ -27,14 +26,21 @@ rhs_url = '?formatted=true&crumb=swg7qs5y9UP&lang=en-US&region=US&' \
           'corsDomain=finance.yahoo.com'
 
 
-tickers = si.tickers_sp500()
+tickerssp500 = si.tickers_sp500()
+tickersdow = si.tickers_dow()
+tickersnasdaq = si.tickers_nasdaq()
 
+all_tickers = set(tickerssp500 + tickersdow + tickersnasdaq)
+
+
+start_date = pd.Timestamp("2011-01-01")
+end_date = pd.Timestamp.now()
 
 recommendations = []
 recommendationstrend_dict = {}
 
 
-for ticker in tickers:
+for ticker in tickersdow:
 
     df_trend = pd.DataFrame()
               
@@ -45,6 +51,7 @@ for ticker in tickers:
         recommendation = 6
     try:
         
+        # Recommendations
         result = r.json()['quoteSummary']['result'][0]
         
         recommendation = result['financialData']['recommendationMean']['fmt']
@@ -58,6 +65,16 @@ for ticker in tickers:
             m+=1
             
             df_trend = pd.concat([df_trend, df_temp], axis=0)
+        
+        #analyst info
+        a_info = si.get_analysts_info(ticker)
+        
+        # stock data
+        stock_price = get_data(ticker, start_
+                               date = start_date, 
+                               end_date = end_date, 
+                               index_as_date = True, interval = “1d”)
+        
         
     except:
         recommendation = 6
@@ -75,8 +92,8 @@ for ticker in tickers:
     
     
     
-dataframe = pd.DataFrame(list(zip(tickers, recommendations)), columns =['Company', 'Recommendations']) 
-dataframe = dataframe.set_index('Company')
+#dataframe = pd.DataFrame(list(zip(tickers, recommendations)), columns =['Company', 'Recommendations']) 
+#dataframe = dataframe.set_index('Company')
 #dataframe.to_csv('recommendations.csv')
 
 #print (df)

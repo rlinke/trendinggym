@@ -9,16 +9,30 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 
+import pickle
+
+from keras.callbacks import ReduceLROnPlateau
+
 from keras.models import Sequential
 from keras.layers import LSTM, Dense
 from keras.utils import to_categorical
+from keras.optimizers import Adam
+
+from sklearn.utils import class_weight
+from sklearn.preprocessing import StandardScaler
+
+
 
 # Paramater
 path = "./data/stock_feature_data.csv"
 
 init_train_data = pd.Timestamp("2016-01-01")
 
-df_read = pd.read_csv(path, index_col=0, header=0)
+
+with open("./data/stock_feature_data.pickle", 'rb') as handle:
+    feature_dict = pickle.load(handle)
+
+df_read = feature_dict['^GSPC']#pd.read_csv(path, index_col=0, header=0)
 
 
 def preprocessing(df):
@@ -78,24 +92,31 @@ def split_sequences_lstm(sequences, n_steps_in):
 	return np.array(X)
 
 
-def mdl_lstm(n_steps, n_features):
+def mdl_lstm(n_steps, n_features, dropout1, dropout2):
     
     model = Sequential()
-    model.add(LSTM(100, activation='relu', return_sequences=True, input_shape=(n_steps, n_features)))
-    model.add(LSTM(100, activation='relu'))
+    model.add(LSTM(20, activation='tanh', return_sequences=True, input_shape=(n_steps, n_features)))
+    model.add(LSTM(20, activation='tanh', return_sequences=True, recurrent_dropout = dropout1))
+    model.add(LSTM(10, activation='tanh', recurrent_dropout = dropout2))
     model.add(Dense(3, activation='softmax'))
-    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+    
+    model.compile(optimizer=Adam(lr=0.001), loss='categorical_crossentropy',
+                  metrics=['accuracy'])
      
     return model
 
 # Data preprocessing
 df_X, df_Y = preprocessing(df_read)
 
-n_steps_in = 3 # = lock back
+n_steps_in = 5 # = lock back
 n_features = df_X.shape[1]
 
+# Normalization
+scaler = StandardScaler()
+df_X_values = scaler.fit_transform(df_X)
 
-X = split_sequences_lstm(df_X.values, n_steps_in)
+# LSTM preprocessing
+X = split_sequences_lstm(df_X_values, n_steps_in)
 
 Y = df_Y.values[n_steps_in-1:]
 Y = Y.reshape((len(Y), 1))
@@ -103,13 +124,44 @@ Y = Y.reshape((len(Y), 1))
 # One-hot-encoding
 Y_en = to_categorical(Y)
 
-# Create and train model
-model = mdl_lstm(n_steps_in, n_features)
 
-history = model.fit(X,Y_en, epochs=200,
+# Implement sample weights for training
+# from numpy import zeros, newaxis
+
+# unique, counts = np.unique(Y, return_counts=True)
+# weights = counts/len(Y)
+
+# weights_list = []
+# for el in Y:
+#     weights_list.append(weights[el])
+
+# weights_array = np.array(weights_list)
+
+
+# Create and train model
+dropout1 = 0.4
+dropout2 = 0.2
+model = mdl_lstm(n_steps_in, n_features, dropout1, dropout2)
+
+rlrop = ReduceLROnPlateau(monitor='train_loss', factor=0.1, patience=10, min_delta=0.001)
+
+
+history = model.fit(X,Y_en, epochs=400,
                     #validation_data=(X_validate,y_validate),
                     shuffle = False,
-                    batch_size = n_steps_in, 
+                    batch_size = 32,
+                    #sample_weight = weights_array,
+                    callbacks=[rlrop],
                     verbose = 2)
+
+
+from sklearn.metrics import accuracy_score
+
+class_preds = np.argmax(model.predict(X), axis=-1)
+
+accuracy_score(Y, class_preds)
+
+
+
 
 
