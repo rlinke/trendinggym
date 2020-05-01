@@ -36,12 +36,13 @@ all_tickers = set(tickerssp500 + tickersdow + tickersnasdaq)
 start_date = pd.Timestamp("2011-01-01")
 end_date = pd.Timestamp.now()
 
-recommendations = []
-recommendationstrend_dict = {}
-
-
+results = {}
+ticker = "NFLX"
 for ticker in tickersdow:
-
+    results[ticker] = {}
+    recommendationstrend_dict = {}
+    stockinfos = []
+    
     df_trend = pd.DataFrame()
               
     url =  lhs_url + ticker + rhs_url
@@ -70,19 +71,19 @@ for ticker in tickersdow:
         a_info = si.get_analysts_info(ticker)
         
         # stock data
-        stock_price = get_data(ticker, start_
-                               date = start_date, 
+        stock_price = si.get_data(ticker,
+                               start_date = start_date, 
                                end_date = end_date, 
-                               index_as_date = True, interval = “1d”)
+                               index_as_date = True, interval = "1d")
         
         
     except:
         recommendation = 6
-    
-    recommendations.append(recommendation)
-    
-    recommendationstrend_dict[ticker] = df_trend
-    
+        
+    results[ticker]['recommendation'] = recommendation
+    results[ticker]['trend'] = df_trend
+    results[ticker]['ohlcv'] = a_info
+    results[ticker]['a_info'] = stock_price
     
     
     print("--------------------------------------------")

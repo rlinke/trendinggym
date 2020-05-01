@@ -1,2 +1,4 @@
 pytrends
 pandas_datareader
+requests_html
+yahoo_fin
