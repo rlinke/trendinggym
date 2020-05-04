@@ -20,7 +20,7 @@ def main():
     
     ticker_list = ["^GSPC"]
     
-    start_date = pd.Timestamp("2011-01-01")
+    start_date = pd.Timestamp("2010-01-01")
     end_date = pd.Timestamp.now()
     
     dict_save = {}
@@ -51,7 +51,7 @@ def main():
                                  for col in list(df_stock_data.columns.get_level_values(0))]
     
         # Append new stock data
-        result = df.append(df_stock_data, sort=False)
+        result = df[ticker].append(df_stock_data, sort=False)
         
         dict_save[ticker] = result
     
