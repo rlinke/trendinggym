@@ -1,4 +1,8 @@
+keras
 pytrends
 pandas_datareader
 requests_html
+scikit-learn
+ta
+tensorflow
 yahoo_fin

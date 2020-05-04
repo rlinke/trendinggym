@@ -6,6 +6,9 @@ Created on Tue Apr 28 20:26:48 2020
 """
 # doku: http://theautomatic.net/yahoo_fin-documentation/
 
+import os
+import pickle
+
 import requests
 import pandas as pd 
 from yahoo_fin import stock_info as si 
@@ -15,6 +18,32 @@ import numpy as np
 from collections import defaultdict
 
 from datetime import date
+
+
+
+def get_stock_data(ticker, start, end=None):
+    
+    data_dir = f'data/stocks/{ticker}.csv'
+    """
+    #  TODO: SHOULD REALLY ONLY DOWNLOAD NEW DATA - 
+    if os.path.isfile(data_dir):
+        prices_cached = pd.read_csv(data_dir, index_col=0)
+        start = prices_cached.index.values[-1]
+    """
+    stock_price = si.get_data(ticker,
+                       start_date = start, 
+                       end_date = end, 
+                       index_as_date = True, 
+                       interval = "1d")
+    
+    # prices_cached.merge(stock_price, how="outer")
+
+    stock_price.to_csv(data_dir)
+    
+    return stock_price
+
+
+
 
 today = date.today()
 
@@ -37,8 +66,7 @@ start_date = pd.Timestamp("2011-01-01")
 end_date = pd.Timestamp.now()
 
 results = {}
-ticker = "NFLX"
-for ticker in tickersdow:
+for ticker in all_tickers:
     results[ticker] = {}
     recommendationstrend_dict = {}
     stockinfos = []
@@ -70,20 +98,18 @@ for ticker in tickersdow:
         #analyst info
         a_info = si.get_analysts_info(ticker)
         
-        # stock data
-        stock_price = si.get_data(ticker,
-                               start_date = start_date, 
-                               end_date = end_date, 
-                               index_as_date = True, interval = "1d")
         
+    except KeyboardInterrupt as e:
+        raise e
         
-    except:
+    except Exception as e:
+        print(e)
         recommendation = 6
         
     results[ticker]['recommendation'] = recommendation
     results[ticker]['trend'] = df_trend
-    results[ticker]['ohlcv'] = a_info
-    results[ticker]['a_info'] = stock_price
+    results[ticker]['a_info'] = a_info
+    
     
     
     print("--------------------------------------------")
@@ -92,9 +118,11 @@ for ticker in tickersdow:
     
     
     
+y,m,d = end_date.year, end_date.month, end_date.day
+with open(f'data/yahoo_recommendation/{y:04}-{m:02}-{d:02}.pkl', 'wb') as f:
+    pickle.dump(results, f)
     
-#dataframe = pd.DataFrame(list(zip(tickers, recommendations)), columns =['Company', 'Recommendations']) 
-#dataframe = dataframe.set_index('Company')
-#dataframe.to_csv('recommendations.csv')
 
-#print (df)
+# get the stock data --> this is historic available so no rush to get it
+# stock data
+# stock_data = get_stock_data(ticker, start_date, end_date)
