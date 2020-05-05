@@ -42,22 +42,22 @@ def visualize_training_results(results):
     Plots the loss and accuracy for the training and testing data
     """
     history = results.history
-    plt.figure(figsize=(16,5))
-    plt.plot(history['val_loss'])
-    plt.plot(history['loss'])
-    plt.legend(['val_loss', 'loss'])
-    plt.title('Loss')
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.show()
+    fig, ax = plt.subplots(2,1, figsize=(16,5))
+    ax1 = ax[0]
+    ax1.plot(history['val_loss'])
+    ax1.plot(history['loss'])
+    ax1.legend(['val_loss', 'loss'])
+    ax1.title.set_text('Loss')
+    ax1.set_xlabel('Epochs')
+    ax1.set_ylabel('Loss')
     
-    plt.figure(figsize=(16,5))
-    plt.plot(history['val_accuracy'])
-    plt.plot(history['accuracy'])
-    plt.legend(['val_accuracy', 'accuracy'])
-    plt.title('Accuracy')
-    plt.xlabel('Epochs')
-    plt.ylabel('Accuracy')
+    ax2 = ax[1]
+    ax2.plot(history['val_accuracy'])
+    ax2.plot(history['accuracy'])
+    ax2.legend(['val_accuracy', 'accuracy'])
+    ax2.title.set_text('Accuracy')
+    ax2.set_xlabel('Epochs')
+    ax2.set_ylabel('Accuracy')
     plt.show()
     
     
