@@ -9,16 +9,9 @@ import ta
 import numpy as np
 import pickle
 
-filepath = "./data/stock_chart_data.pickle"
-save_path = "./data/stock_feature_data.pickle"
-    
-ticker_list = ["^GSPC"]
 
-with open(filepath, 'rb') as handle:
-    stock_dict = pickle.load(handle)
-    
 
-def create_indicators(stock_dict, list_of_stocks, path):
+def create_indicators(stock_dict, path):
     
     dict_save = {}
     
@@ -30,13 +23,14 @@ def create_indicators(stock_dict, list_of_stocks, path):
         df_x=pd.DataFrame()
         param = 12
         
-       # for stock in list_of_stocks:
             
         # Extract data - https://technical-analysis-library-in-python.readthedocs.io/en/latest/ta.html
         s_close = pd.Series(df_read[[s for s in df_read.columns if 'Close_'+stock_name in s and 'Adj' not in s]].values[:,0])
         s_low = pd.Series(df_read[[s for s in df_read.columns if 'Low_'+stock_name in s]].values[:,0])
         s_high = pd.Series(df_read[[s for s in df_read.columns if 'High_'+stock_name in s]].values[:,0])
         s_vol = pd.Series(df_read[[s for s in df_read.columns if 'Volume_'+stock_name in s]].values[:,0])
+        s_open = pd.Series(df_read[[s for s in df_read.columns if 'Open_'+stock_name in s]].values[:,0])
+
     
         # Calc indicators
         df_x[stock_name+'_macd'] = ta.trend.macd(s_close, n_slow = 26, n_fast = param ,fillna = False)       
@@ -45,7 +39,10 @@ def create_indicators(stock_dict, list_of_stocks, path):
         df_x[stock_name+'_mov'] = ta.volume.ease_of_movement(s_high, s_low, s_vol, n = 14, fillna = False)        
         df_x[stock_name+'_rsi'] = ta.momentum.rsi(s_close, n = 14, fillna = False)
         df_x[stock_name+'_close'] = s_close.values
-
+        df_x[stock_name+'_low'] = s_low.values
+        df_x[stock_name+'_high'] = s_high.values
+        df_x[stock_name+'_vol'] = s_vol.values
+        df_x[stock_name+'_open'] = s_open.values
         
         df_x.index = df_read.index  
     
@@ -71,16 +68,25 @@ def create_indicators(stock_dict, list_of_stocks, path):
         
         dict_save[stock_name] = df_data_save
         
-        # save training data
-        with open(save_path, 'wb') as handle:
-            pickle.dump(dict_save, handle, protocol=pickle.HIGHEST_PROTOCOL)
-                 
-        return dict_save
+    # save training data
+    with open(save_path, 'wb') as handle:
+        pickle.dump(dict_save, handle, protocol=pickle.HIGHEST_PROTOCOL)
+             
+    return dict_save
         
 if __name__ == '__main__':
     
-	create_indicators(stock_dict, ticker_list, save_path)
     
+    filepath = "./data/stock_chart_data.pickle"
+    save_path = "./data/stock_feature_data.pickle"
+    
+    
+    with open(filepath, 'rb') as handle:
+        stock_dict = pickle.load(handle)
+        
+    
+    feature_dict = create_indicators(stock_dict, save_path)
+        
     
     
     

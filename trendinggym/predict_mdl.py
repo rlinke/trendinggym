@@ -11,15 +11,24 @@ import numpy as np
 
 import pickle
 
-from keras.callbacks import ReduceLROnPlateau
+from sklearn.utils import class_weight
+from sklearn.preprocessing import StandardScaler
 
-from keras.models import Sequential
-from keras.layers import LSTM, Dense
+# For LSTM
+from keras.callbacks import ReduceLROnPlateau
+from keras_self_attention import SeqSelfAttention, SeqWeightedAttention
+from keras.models import Sequential, Model
+from keras.layers import LSTM, Dense, Input, Conv1D, Dropout, Lambda, concatenate
 from keras.utils import to_categorical
 from keras.optimizers import Adam
 
-from sklearn.utils import class_weight
-from sklearn.preprocessing import StandardScaler
+
+# For TCN
+from tensorflow.keras.layers import Dense as tfDense
+from tensorflow.keras import Input, Model
+from tensorflow.keras import Model as tfModel
+
+from tcn import TCN, tcn_full_summary
 
 
 
@@ -29,38 +38,60 @@ path = "./data/stock_feature_data.csv"
 init_train_data = pd.Timestamp("2016-01-01")
 
 
-def load_feature_data():
-            
-    with open("./data/stock_feature_data.pickle", 'rb') as handle:
-        feature_dict = pickle.load(handle)
-    
-    df = feature_dict['^GSPC']#pd.read_csv(path, index_col=0, header=0)
-
-    return df 
 
 def calc_swings(df):
+    '''
+    calc metric for swing
+
+    Parameters
+    ----------
+    df : dataframe
+        DESCRIPTION.
+
+    Returns
+    -------
+    None.
+
+    '''
     
+    swing_cols = ['+7', '+6', '+5', '+4', '+3', '+2']
     
-    return None
+    #Calc diff
+    df_diff = pd.DataFrame()
+    
+    for col in swing_cols:
+        df_diff[col] = 1 - df[col]/df['0']
+        
+    df_calc = pd.DataFrame(columns=['swing'])#, index=df_diff.index)
+    
+    for idx, val in df_diff.iterrows():
+        df_calc.loc[idx] = [np.sum(val)]
+        
+    return df_calc
 
 
 def preprocessing(df):
     
-    # not finish
-    x_list = ['^GSPC_macd','^GSPC_roc','^GSPC_wr','^GSPC_mov','^GSPC_rsi','^GSPC_close']
+    # Features -> better solution 
+    x_list = ['^GSPC_macd','^GSPC_roc','^GSPC_wr','^GSPC_mov','^GSPC_rsi',
+              '^GSPC_close','^GSPC_open','^GSPC_high','^GSPC_low','^GSPC_vol']
     
     df_train = df.dropna()
     
     # Calc percentage of next day based on actual day with > 1 %
     df_y_train = df_train['diff']/df_train['0']
 
-    diff = 0.01
+    diff = 0.005
     df_y_train = (df_y_train > diff) * 2 + (df_y_train < -diff) * 1
+    
+    # Get swing indicator
+    df_swing =  calc_swings(df_train)
     
     df_x_train = df_train[x_list]
     #df_x_train = df_train[[col for col in df.columns if col not in df_y_train.columns]]
     
-    return df_x_train, df_y_train
+    
+    return df_x_train, df_y_train, df_swing #pd.concat([df_y_train, df_swing], axis=1)
 
 
 '''
@@ -101,27 +132,76 @@ def split_sequences_lstm(sequences, n_steps_in):
 	return np.array(X)
 
 
-def mdl_lstm(n_steps, n_features, dropout1, dropout2):
+def mdl_lstm(n_steps, batch_size, n_features, dropout1, dropout2):
     
     model = Sequential()
-    model.add(LSTM(50, activation='tanh', return_sequences=True, input_shape=(n_steps, n_features)))
-    model.add(LSTM(50, activation='tanh', recurrent_dropout = dropout1))
-    #model.add(LSTM(10, activation='tanh', recurrent_dropout = dropout2))
-    model.add(Dense(3, activation='softmax'))
+    model.add(LSTM(50, activation='tanh', 
+                   stateful=False,
+                   return_sequences=True, 
+                   input_shape=(n_steps, n_features)
+                   #batch_input_shape=(batch_size, n_steps, n_features)
+                   )
+              )
     
-    model.compile(optimizer=Adam(lr=0.01), loss='categorical_crossentropy',
-                  metrics=['accuracy'])
-     
+    model.add(LSTM(50, activation='tanh', 
+                   stateful=False, 
+                   recurrent_dropout = dropout1)
+              )
+    
+    #model.add(SeqSelfAttention(attention_activation='tanh'))
+    model.add(Dense(3, activation='softmax'))     
+    
+    model.compile(optimizer=Adam(lr=0.01), metrics=['accuracy'], loss='categorical_crossentropy')
+                  
     return model
 
 
-def prepare_data(df_X, df_Y):
+
+def mdl_tcn(timesteps, input_dim):
+    
+    #batch_size, timesteps, input_dim = None, timesteps, input_dim
+    
+    i = Input(batch_shape=(None, timesteps, input_dim))
+    
+    o = TCN(nb_filters=64, kernel_size=6, 
+              return_sequences=True, activation='tanh',
+              dropout_rate=0.1)(i)  
+    
+    o = TCN(nb_filters=64, kernel_size=4, nb_stacks=1, 
+              dilations=[1, 2, 4, 8, 16, 32], padding='causal', 
+              use_skip_connections=True, dropout_rate=0.4,
+              activation='tanh',return_sequences=False)(o)
+    
+    out = tfDense(1)(o)
+    
+    model = tfModel(inputs=[i], outputs=[out])
+    model.compile(optimizer='adam', loss='mse')
+    
+    tcn_full_summary(model, expand_residual_blocks=False)
+           
+    return model
+
+
+# add these layers to the graph model and connect them to the sequence input
+#model.add_node(shared_model, name="shared_layers", input="sequence_input")
+
+# now add your output layers
+#model.add_node(Dense(10, activation="softmax"), name="output1", input="shared_layers", create_output=True)
+#model.add_node(Dense(2, activation="linear"), name="output2", input="shared_layers", create_output=True)
+# ...
+
+# compile the model, potentially with different loss functions per output
+#model.compile("rmsprop", {"output1": "categorical_crossentropy", "output2": "mse"})
+
+
+
+def prepare_data(df_X, df_Y, df_swing):
     
     # Data preprocessing
-    #df_X, df_Y = preprocessing(df)
+    #df_X, df_Y, df_swing = preprocessing(df)
     
-    n_steps_in = 5 # = lock back
-    n_features = 6#df_X.shape[2]
+    n_steps_in = 10 # = lock back
+    n_features = 10 #df_X.shape[2]
     
     # Normalization
     scaler = StandardScaler()
@@ -136,7 +216,10 @@ def prepare_data(df_X, df_Y):
     # One-hot-encoding
     Y_en = to_categorical(Y)
     
-    return X, Y_en
+    #Y_f = np.concatenate((Y_en, ), axis=1)
+    
+    return X, Y_en, df_swing.values[n_steps_in-1:]
+
 
 
 # Implement sample weights for training
@@ -152,37 +235,47 @@ def prepare_data(df_X, df_Y):
 # weights_array = np.array(weights_list)
 
 
-def create_train_mdl(X, Y_en):
+def create_train_mdl(X, Y_en, Y_s):
     
     
-    n_steps_in = 5 # = lock back
-    n_features = 6#X.shape[2] # Note: 2 -> lstm format
+    n_steps_in = X.shape[1] # = lock back
+    n_features = X.shape[2] # = feature X.shape[2] # Note: 2 -> lstm format
     
     # Create and train model
     dropout1 = 0.4
     dropout2 = 0.2
-    model = mdl_lstm(n_steps_in, n_features, dropout1, dropout2)
+    bs = 16
     
-    rlrop = ReduceLROnPlateau(monitor='train_loss', factor=0.1, patience=10, min_delta=0.01)
+    # Create LSTM Model
+    model_lstm = mdl_lstm(n_steps_in, bs, n_features, dropout1, dropout2)
     
+    rlrop = ReduceLROnPlateau(monitor='train_loss', factor=0.1, patience=20, min_delta=0.005)
     
-    hist = model.fit(X,Y_en, 
+    hist1 = model_lstm.fit(X,Y_en, 
                         epochs=400,
-                        #validation_data=(X_validate,y_validate),
                         shuffle = False,
-                        batch_size = 16,
+                        batch_size = bs,
                         #sample_weight = weights_array,
                         callbacks=[rlrop],
                         verbose = 2)
     
-    #to do save mdl
     
-    return model 
+    # Create TNC Model
+    model_tcn = mdl_tcn(n_steps_in, n_features)
+    
+    hist2 = model_tcn.fit(X, Y_s, 
+                          epochs=400, 
+                          validation_split=0.0)
+    
+    
+    return model_lstm, model_tcn
 
 
 
 def make_forecast_test(model, X):
     return np.argmax(model.predict(X), axis=-1), model.predict(X)
+
+
 
 def plotting(mdl, stock_dict, feature_dict, ticker):
     

@@ -4,14 +4,33 @@ Created on Fri May  1 11:36:19 2020
 
 @author: mk
 """
-
-
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+import pickle
+from pandas.tseries.offsets import BDay
 
-from predict_mdl import load_feature_data, preprocessing, prepare_data, create_train_mdl
+from trading_utils import load_feature_data, combine_swing, stopp_strategy
 
+#from keras.models import load_model
+from tensorflow.keras.models import load_model
+
+from predict_mdl import preprocessing, prepare_data, create_train_mdl
+from predict_mdl import *
+
+import logging
+import logging.handlers
+import os
+ 
+handler = logging.handlers.WatchedFileHandler(
+    os.environ.get("LOGFILE", "./LOG_portfolio.log"))
+formatter = logging.Formatter(logging.BASIC_FORMAT)
+handler.setFormatter(formatter)
+root = logging.getLogger()
+root.setLevel(os.environ.get("LOGLEVEL", "INFO"))
+root.addHandler(handler)
+ 
+logging.getLogger().setLevel(logging.INFO)
 
 
 
@@ -19,9 +38,9 @@ from predict_mdl import load_feature_data, preprocessing, prepare_data, create_t
 
 start_date = pd.Timestamp("2010-01-01")
 
-end_train_date = pd.Timestamp("2018-01-01")
+end_train_date = pd.Timestamp("2017-01-01")
 
-end_date = pd.Timestamp("2019-01-01")
+end_date = pd.Timestamp("2018-01-01")
 
 order_cost =  5
 
@@ -33,7 +52,7 @@ money = 10000
 
 def calc_baseline_profit(df, ticker):
     '''
-    Calculate basline balance  and profit
+    Calculate basline balance and profit
 
     Parameters
     ----------
@@ -62,7 +81,7 @@ def calc_baseline_profit(df, ticker):
     return profit, balance_end
     
 
-def init_train(df):
+def init_train(df, flag):
     '''
     Initial training
 
@@ -78,60 +97,41 @@ def init_train(df):
     df_y_train : TYPE
 
     '''
-    
-    df_x_train, df_y_train = preprocessing(df)
-    X, Y_en = prepare_data(df_x_train, df_y_train)
-    init_mdl = create_train_mdl(X, Y_en)
-    
-    print('Trained init model')
-    
-    return init_mdl, df_x_train, df_y_train
 
-
-def money_managment():
-    '''
-    Check if loss is getting to high and than sell
-
-    Returns
-    -------
-    None.
-
-    '''
-    
-    return None
-
-def stopp_strategy(action, act_price, state, price_since_action):
-    
-    
-    threshold = 0.1
-    profit = 1
-    action_stopp_stratgy = 0
-
-    
-    if action != 0:
-        price_since_action = act_price
+    df_x_train, df_y_train, df_y_swing = preprocessing(df)
+    X, Y_en, Y_s = prepare_data(df_x_train, df_y_train, df_y_swing)
         
-    else:
-        # Long position
-        if state == 2:
-            profit = (act_price/price_since_action) + threshold
+    if flag:
+        
+        init_mdl_lstm, init_mdl_tcn = create_train_mdl(X, Y_en, Y_s)
+        
+        print('Trained and saved init model')
+        
+        # save training data
+        with open('./data/init_mdl_lstm.pickle', 'wb') as handle:
+            pickle.dump(init_mdl_lstm, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+        init_mdl_tcn.save('./data/init_mdl_tcn.h5')
+        
+        # with open('./data/init_mdl_tcn.pickle', 'wb') as handle:
+        #      pickle.dump(init_mdl_tcn, handle, protocol=pickle.HIGHEST_PROTOCOL)
             
-        # Short position
-        elif state == 1: 
-            profit = (price_since_action/act_price) + threshold
+    else:
         
+        print('Load init models ')
+        with open('./data/init_mdl_lstm.pickle', 'rb') as handle:
+            init_mdl_lstm = pickle.load(handle)
+
+        init_mdl_tcn = load_model('./data/init_mdl_tcn.h5', custom_objects={'TCN': TCN}) 
         
-        if profit < 1:
-            # Need to sell stocks
-            print('Need to sell stocks due to stopp stratagy')
-            action_stopp_stratgy = 3
-    
-    return price_since_action, action_stopp_stratgy
+    return init_mdl_lstm, init_mdl_tcn, df_x_train, df_y_train
+
 
 
 def online_portfolie(action, act_price, 
                      act_portfolio, act_stocks,
-                     action_flag, state):
+                     action_flag, state,
+                     price_since_action_in):
     
     '''
     Parameter definition:
@@ -142,18 +142,27 @@ def online_portfolie(action, act_price,
     
     '''
     
-    print("Amount of stocks ", act_stocks)
+    print("Amount of stocks {}".format(act_stocks))
     
     
-    # # Check for stopp_strategy
-    # price_since_action, action_stopp_stratgy = stopp_strategy(action, 
-    #                                                           act_price, 
-    #                                                           state, 
-    #                                                           price_since_action)
+    # Check for stopp_strategy
+    price_since_action, action_stopp_stratgy = stopp_strategy(action, 
+                                                              act_price, 
+                                                              state, 
+                                                              price_since_action_in)
     
-    # if action_stopp_stratgy == 3:
-    #     return new_portfolio, new_stocks, action_flag, state
+    if action_stopp_stratgy == 3:
         
+        new_portfolio = (act_price * act_stocks) - order_cost
+        new_stocks = 0
+        action_flag = False
+        state = 0
+        
+        return new_portfolio, new_stocks, action_flag, state, price_since_action
+        
+    
+    
+    
     
     # Buy - empty portfolio -> going long
     if action == 2 and action_flag == False:
@@ -193,21 +202,6 @@ def online_portfolie(action, act_price,
         new_portfolio = act_portfolio
         new_stocks = act_stocks
         
-        # # short
-        # if state == 1:
-        #     # add 
-        #     delta = (act_portfolio - (act_stocks * act_price)) #* (-1)
-        #     new_portfolio = act_portfolio + delta
-        # # long 
-        # elif state == 2:
-        #     # add profit
-        #     delta = (act_portfolio - (act_stocks * act_price)) * (-1)
-        #     new_portfolio = act_portfolio + delta
-            
-            
-        #new_stocks = 0
-        #action_flag = False
-            
     # No action - empty portfolio
     elif action == 0 and action_flag == False:
         
@@ -249,30 +243,31 @@ def online_portfolie(action, act_price,
          action_flag = True
                
         
-    return new_portfolio, new_stocks, action_flag, state
+    return new_portfolio, new_stocks, action_flag, state, price_since_action
     
 
-def make_forecast(model, X):
-    return np.argmax(model.predict(X), axis=-1)
+def make_forecast(mdl_lstm, mdl_tcn, X):
+    return np.argmax(mdl_lstm.predict(X), axis=-1)[0], mdl_tcn.predict(X)[0][0]
     
 
 
-def update_mdl(model, X_update, Y_en_update):
+def update_mdl(model_lstm, model_tcn, X_update, Y_en_update, Y_swing):
     
     updates = 5
     for i in range(updates):
-        hist = model.fit(X_update, Y_en_update, epochs=1, batch_size=16, verbose=0, shuffle=False)
+        hist1 = model_lstm.fit(X_update, Y_en_update, epochs=1, batch_size=16, verbose=0, shuffle=False)
+        model_tcn.fit(X_update, Y_swing, epochs=1, batch_size=16, verbose=0, shuffle=False)
+        
         #model.reset_states()
     
-    print('Update model done, train accuracy ', hist.history['accuracy'])
-    return model
+    logging.info('Update model done, train accuracy {}'.format(hist1.history['accuracy'][0]))
+    return model_lstm, model_tcn
     
 
 
 
 
-
-def online_train(mdl, df):
+def online_train(lstm_, tcn_, df):
     '''
     Main routine for testing 
 
@@ -290,66 +285,86 @@ def online_train(mdl, df):
 
     '''
     
-    act_mdl = mdl 
+    act_mdl_lstm = lstm_
+    act_mdl_tcn = tcn_
     act_portfolio = money
     act_stocks = 0
     action_flag = False
     state = 0
-       
+    psa = 0   
+    track_dict = {}
+
+    #ts = pd.Timestamp(dt.datetime.now())
+    #ts + BDay(5)
+    
     for day in df[end_train_date:end_date].index:
         
         
         # 1. DO FORECASE
         
         # Need to detect trading days (remove weekend and off days)
-        shift = 7
-        ddays = len(df[day - pd.DateOffset(days = shift):day])
-        if ddays == 6:
-            shift = 6
-        elif ddays == 4:
-            shift = 8
+        shift = 11 # in days
+        df_x_forecast, df_y_forecast, df_y_swing = preprocessing(df[day - BDay(shift):day])
+        X_forecast, Y_en_forecast, Y_s_forecast = prepare_data(df_x_forecast, df_y_forecast, df_y_swing)
         
-        df_x_forecast, df_y_forecast = preprocessing(df[day - pd.DateOffset(days = shift):day])
-        X_forecast, Y_en_forecast = prepare_data(df_x_forecast, df_y_forecast)
-        
-        action = make_forecast(act_mdl, X_forecast)
-        print("Forecast action {} for day {}".format(action[0], day))
+        action, swing = make_forecast(act_mdl_lstm, act_mdl_tcn, X_forecast)
+        logging.info("Forecast action {} and swing {} for day {}".format(action, round(swing,4), day))
         
         act_stock_value = df[day - pd.DateOffset(days = shift):day]['^GSPC_close'].values[-1]
 
-        print("Stock price ", act_stock_value)        
+        logging.info("Stock price {}".format(act_stock_value))
+        
+        # TRACKING
+        track_dict['day'] = day
+        track_dict['stock_price'] = act_stock_value
+        track_dict['forecast'] = df_y_forecast
+        track_dict['swing'] = round(swing,4)
+        track_dict['action_raw'] = action
+        track_dict['portfolio'] = act_portfolio
+        track_dict['state'] = state
+        track_dict['action_flag'] = action_flag
+        track_dict['psa'] = psa
+
+        # Take swings into account -> just use action (long/short) if we expect a swing
+        action, swing_action = combine_swing(action, swing, state)
+        
+        track_dict['action'] = action
+
         
         # 2. Update Portfolio
-        new_portfolio, new_stocks, new_action_flag, new_state = online_portfolie(action[0], 
+        new_portfolio, new_stocks, new_action_flag, new_state, new_psa = online_portfolie(action, 
                                                                              act_stock_value, 
                                                                              act_portfolio, 
                                                                              act_stocks,
                                                                              action_flag, 
-                                                                             state)
+                                                                             state,
+                                                                             psa)
+        
+        logging.info("Portfolio status {}, {} , {}, {}".format(new_portfolio, new_stocks, new_action_flag, new_state))
+        print("Portfolio status {}, {} , {}, {}, {}".format(new_portfolio, new_stocks, new_action_flag, new_state, round(swing,3)))
 
-        
-        print("Portfolio status {}, {} , {}, {}".format(new_portfolio, new_stocks, new_action_flag, new_state))
         # 3. Update model with new day
-        df_x_train, df_y_train = preprocessing(df[start_date:day])
-        X, Y_en = prepare_data(df_x_train, df_y_train)
+        df_x_train, df_y_train, df_y_swing_train = preprocessing(df[start_date:day])
+        X, Y_en, Y_s = prepare_data(df_x_train, df_y_train, df_y_swing_train)
         
-        model_return = update_mdl(act_mdl, X, Y_en)
+        model_re_lstm, model_re_tcn = update_mdl(act_mdl_lstm, act_mdl_tcn, X, Y_en, Y_s)
 
         #if action[0] == 2:
         #    break
         
         # 4. Update values
-        act_mdl = model_return
-        
+        act_mdl_lstm = model_re_lstm
+        act_mdl_tcn = model_re_tcn
+
         act_portfolio = new_portfolio
         act_stocks = new_stocks
         action_flag = new_action_flag
         state = new_state
+        psa = new_psa
         
-        print("---------------------------------------")
+        logging.info("---------------------------------------")
         
-    return act_portfolio
-        #print(day)
+    return act_portfolio, track_dict
   
     
   
@@ -358,27 +373,34 @@ def online_train(mdl, df):
 def execute():
     
     
-    raw_df = load_feature_data()
+    raw_dict = load_feature_data()
+    
+    raw_df = raw_dict['^GSPC']
     
     ticker = '^GSPC'
     
     # 1. Init train 
-    init_mdl, df_x, df_y = init_train( raw_df[start_date:end_train_date])
+    init_mdl_lstm, init_mdl_tcn, df_x, df_y = init_train( raw_df[start_date:end_train_date], 
+                                                         True)
     
     # 2. Calc baseline (= reference performance)
-    ref_profit, value_baseline = calc_baseline_profit(raw_df[end_train_date:end_date], ticker)
+    ref_profit, value_baseline = calc_baseline_profit(raw_df[end_train_date:end_date], 
+                                                      ticker)
     
     # 3. Online training/update
-    value = online_train(init_mdl, raw_df[start_date:end_date])
+    value, tracker_dict = online_train(init_mdl_lstm, 
+                                       init_mdl_tcn, 
+                                       raw_df[start_date:end_date]
+                                       )
     
-    return value
+    return value, tracker_dict
     
     
     
     
 if __name__ == '__main__':
     
-	value = execute() 
+	value, tracker_dict = execute() 
     
     
     

@@ -18,9 +18,9 @@ def main():
     file = 'stock_chart_data.pickle'
     checkpoint = 'checkpoint.pickle'
     
-    ticker_list = ["^GSPC"]
+    ticker_list = ["^GSPC", "^GDAXI", "^DJI", "^IXIC", "AAPL"]
     
-    start_date = pd.Timestamp("2010-01-01")
+    start_date = pd.Timestamp("2009-01-01")
     end_date = pd.Timestamp.now()
     
     dict_save = {}
@@ -47,11 +47,10 @@ def main():
         df_stock_data = data.DataReader(ticker, 'yahoo', start_date, end_date)
         
         # Rename multi index columns
-        df_stock_data.columns = [col+'_'+ticker for ticker in ticker_list 
-                                 for col in list(df_stock_data.columns.get_level_values(0))]
+        df_stock_data.columns = [col+'_'+ticker for col in list(df_stock_data.columns.get_level_values(0))]
     
         # Append new stock data
-        result = df[ticker].append(df_stock_data, sort=False)
+        result = df.append(df_stock_data, sort=False)
         
         dict_save[ticker] = result
     
