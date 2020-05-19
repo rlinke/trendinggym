@@ -64,6 +64,28 @@ def load_dataset(filepath):
     
     return df
 
+
+def cat_data_is_consistent(df, df_scaled, x, y, lookback_interval, features, temp, categories):
+    lookback_interval, features, categories = 3, 6, 3 
+    print("x shape expected: len(df) | lookback | features ")
+    print((x.shape, len(df) - lookback_interval, lookback_interval, features))
+    x.shape[0]
+    
+    print("x and y len are equal ")
+    x.shape[0] == y.shape[0]
+    
+    print("y shape expected: len(df) - lookback | categories")
+    print((y.shape, len(df) - lookback_interval, categories))
+    
+    # close_data original 
+    scaled_x_0 = df_scaled.iloc[0:lookback_interval, 0]
+    scaled_y_0 = df_scaled.iloc[lookback_interval, 0]
+    
+    df_scaled.index[lookback_interval]
+    
+
+
+
 def setup_dataset(is_cat, df, y_in, input_shape, output_shape):      
     ## Scaling
     # Scale fitting the close prices separately for inverse_transformations purposes later
@@ -74,33 +96,36 @@ def setup_dataset(is_cat, df, y_in, input_shape, output_shape):
     # Normalizing/Scaling the DF
     scaler = RobustScaler()
     
-    df = pd.DataFrame(scaler.fit_transform(df), columns=df.columns, index=df.index)
+    df_scaled = pd.DataFrame(scaler.fit_transform(df), columns=df.columns, index=df.index)
     # input_shape, output_shape = 30, 1
     # Splitting the data into appropriate sequences
-    seq = df.values
+    seq = df_scaled.values
     # Creating a list for both variables
-    X, y = [], []
+    X, y,tss = [], [], []
     i=0
-    for i in range(len(seq)):
+    for i in range(0, len(seq)-input_shape):
         
         # Finding the end of the current sequence
         end = i + input_shape
-        out_end = end + output_shape
-        
-        # Breaking out of the loop if we have exceeded the dataset's length
-        if out_end > len(seq):
-            break
         
         # Splitting the sequences into: x = past prices and indicators, y = prices ahead
         if is_cat:
-            seq_x, seq_y = seq[i:end, :], y_in[end,:]
+            seq_x, seq_y, ts = seq[i:end, :], y_in[end,:], df_scaled.index[end]
+            
         else:
-            seq_x, seq_y = seq[i:end, :], seq[end:out_end]
+            out_end = end + output_shape
+        
+            # Breaking out of the loop if we have exceeded the dataset's length
+            if out_end > len(seq):
+                break
+            
+            seq_x, seq_y, ts = seq[i:end, :], seq[end:out_end], df_scaled.index[end:out_end]
         
         X.append(seq_x)
         y.append(seq_y)
-    
-    x,y = np.array(X), np.array(y)        
+        tss.append(ts)
+        
+    x,y,tss = np.array(X), np.array(y), np.array(tss)
     #split in train and validation data
     # X_train, X_val,y_train, y_val = train_test_split(X,y, shuffle=False)
     # permutate the train data 
@@ -110,7 +135,7 @@ def setup_dataset(is_cat, df, y_in, input_shape, output_shape):
     X_train = X_train[perm]
     y_train = y_train[perm]
     """
-    return df, x, y, close_scaler
+    return df, x, y, tss, close_scaler
 
 
 """
@@ -118,14 +143,18 @@ def setup_dataset(is_cat, df, y_in, input_shape, output_shape):
 """
 
 
-def train_init(model, init_interval, x, y, cbs=None):
+def train_init(model, init_interval, x, y, cbs=None, max_epochs=None):
     #baseline training with x%
     x_t = x[0:init_interval,:,:]
     y_t = y[0:init_interval]
+    
+    # compatibility option
+    if max_epochs == None:
+        max_epochs = 150
         
     hist = model.fit(x_t, 
                      y_t, 
-                    epochs=150, 
+                    epochs=max_epochs, 
                     shuffle=False,
                     batch_size=64,
                     # validation_split=0.1,
@@ -252,12 +281,13 @@ def plot_result(results):
     plt.plot(results["actual"], label='Actual')
     plt.plot(results["prediction"], 'r.', label='Predicted')
     
+    """
     if init_interval < len(results):
         plt.axvspan(results.index.values[init_interval],
                     results.index.values[-1],
                     alpha=0.2
                     )
-    
+    """
     plt.title(f"Predicted vs Actual Closing Prices")
     plt.ylabel("Price")
     plt.legend()
@@ -277,20 +307,22 @@ options = {
     "out": 3
 }
 
-training_fraction = 0.4
-
 df = load_dataset(options["filepath"])
 
 df_orig = df.copy()
 
+trunc_features = options["features"]
 
-trunc_features = True
-if trunc_features:
+if trunc_features =="mk1":
     # macd roc wr mov rsi close
     df = df.filter(["close", "trend_macd","momentum_roc",  "momentum_wr", "volume_em", "momentum_rsi"], axis=1)
 
-is_category = True
-if is_category:
+elif trunc_features =="auto":
+    pass
+
+    
+is_cat = True
+if is_cat:
     
     temp = (df_orig["close"] - df_orig["close"].shift(1)).shift(-1)/df_orig["close"]
     
@@ -306,19 +338,17 @@ if is_category:
     temp[mask_pos] = 2
     # set all negative to 1 - short option
     temp[mask_neg] = 1
-    temp = to_categorical(temp)
-    df, x, y, close_scaler = setup_dataset(True, df, temp, options["lookback_interval"], options["out"])
+    y_in = to_categorical(temp)
+    df_scaled, x, y, tss, close_scaler = setup_dataset(True, df, y_in, options["lookback_interval"], options["out"])
 
 else:
-    df, x, y, close_scaler = setup_dataset(False, df, None, options["lookback_interval"], options["out"])
+    df, x, y, tss, close_scaler = setup_dataset(False, df, None, options["lookback_interval"], options["out"])
 
 
-
-
-init_interval = int(len(x) * training_fraction)
 # set features correctly
-if options["features"] == "auto":
+if isinstance(options["features"], str):
     options["features"] = x.shape[-1]
+    
 
 
 # eof2016 = pd.Timestamp("2016-12-30")
@@ -339,9 +369,9 @@ eofds_index = len(df)
 model = build_tcn_model(**options)
 
 rlrop = ReduceLROnPlateau(monitor='loss', factor=0.1, patience=10, min_delta=0.00001)
-es_cb = EarlyStopping(monitor='acc', min_delta=1e-4, patience=5, verbose=0, restore_best_weights=True)
+# es_cb = EarlyStopping(monitor='acc', min_delta=1e-4, patience=5, verbose=0, restore_best_weights=True)
 
-hist, model = train_init(model, eof2017_index, x, y, cbs=[rlrop, es_cb])
+hist, model = train_init(model, eof2017_index, x, y, cbs=[rlrop, es_cb], max_epochs=50)
 
 visualize_training_results(hist)
 
@@ -380,7 +410,9 @@ baseline_results.columns = ['time', 'predicted', 'actual']
 baseline_results.index = baseline_results["time"]
 baseline_results.drop("time", inplace=True, axis=1)
 
-baseline_results.to_pickle("data/cache/2020_05_13_baseline.pkl")
+baseline_fp = "data/cache/2020_05_13_baseline.pkl"
+baseline_results.to_pickle(baseline_fp)
+print(f"saved results to {baseline_fp}")
 #%%
 
 

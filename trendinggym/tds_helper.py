@@ -51,23 +51,27 @@ def visualize_training_results(results):
         ax1.legend(['val_loss', 'loss'])
     else:
         ax1.legend(['loss'])
+        
     ax1.title.set_text('Loss')
     ax1.set_xlabel('Epochs')
     ax1.set_ylabel('Loss')
     
     
-    if "val_acc" in history or "val_accuracy" in history:
-        if "val_accuracy" not in history:
-            history["val_accuracy"] = history["val_acc"]
-            history["accuracy"] = history["acc"]
-    
     ax2 = ax[1]
+    if "val_acc" in history:
+        history["val_accuracy"] = history["val_acc"]
+    
+    if "acc" in history:
+        history["accuracy"] = history["acc"]
+    
     ax2.plot(history['accuracy'])
+    
     if "val_accuracy" in history:
         ax2.plot(history['val_accuracy'])
         ax2.legend(['val_accuracy', 'accuracy'])
     else:
         ax2.legend(['accuracy'])
+        
     ax2.title.set_text('Accuracy')
     ax2.set_xlabel('Epochs')
     ax2.set_ylabel('Accuracy')

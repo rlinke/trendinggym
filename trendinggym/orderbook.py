@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import pickle
 
+import matplotlib.pyplot as plt
 
 class Orderbook:
     def __init__(self, portfolio, order_cost, df):
@@ -70,6 +71,42 @@ class Orderbook:
         self.portfolio = 0
         self.history.append(self.last_order)
        
+        
+    def plot_history(self):
+        ob = self
+        if len(ob.history) == 0:
+            return
+        
+        results = ob.history
+
+        res = pd.DataFrame(results, columns=ob.loc.keys())
+        res.index = res["ts"]
+        res.drop("ts", axis=1, inplace=True)
+        res["current_value"].plot()
+
+        mask_long = res.index[res["type"] == "long"]
+        mask_short = res.index[res["type"] == "short"]
+
+        # down marker
+        down_marker = "v"
+        up_marker = "^"
+        
+        fig, ax = plt.subplots(2)
+        ax[0].plot(res.index, res["current_value"])
+        
+        ax[1].bar(ob.df.index,ob.df["close"])
+        
+        index_long = mask_long
+        value_long = ob.df.loc[index_long]["close"]
+        ax[1].plot(index_long, value_long, up_marker, color='green', markersize=8)
+
+        index_short = mask_short
+        value_short = ob.df.loc[index_short]["close"]
+        ax[1].plot(index_short, value_short, down_marker, color='red', markersize=8)
+        
+        
+        
+        
 #%%
 
 #if __name__ == '__main__':
@@ -84,7 +121,7 @@ df.drop(['open', 'high', 'low', 'adjclose', 'volume', 'ticker'], axis=1, inplace
 
 buy, hold, sell = [], [] , []
 
-order_cost = 10
+order_cost = 5
 portfolio = 10000
 history = []
 
@@ -109,14 +146,7 @@ for i in range(len(df)):
 ob.sell_option(ts)
 print(ob.portfolio)    
 
-
-results = ob.history
-
-res = pd.DataFrame(results, columns=ob.loc.keys())
-res.index = res["ts"]
-res.drop("ts", axis=1, inplace=True)
-res["current_value"].plot()
-
+ob.plot_history()
 
 
 
