@@ -12,6 +12,7 @@ links on stateful lstm:
     https://fairyonice.github.io/Stateful-LSTM-model-training-in-Keras.html
 """
 
+
 # Importing Libraries
 import numpy as np
 import matplotlib.pyplot as plt
@@ -27,45 +28,11 @@ import ta
 from keras.models import Sequential
 from keras.layers import LSTM, Dense
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping
-
+from keras.utils import to_categorical
 from trendinggym.tds_helper import * 
 
+from trendinggym.modelpool import build_lstm_model, build_tcn_model
 
-def test_future_leakage(df):
-    
-    window1 = np.random.randint(0,len(df))
-    window2 = window1 + 10 
-    
-    df1 = df.copy().head(window1)
-    df2 = df.copy().head(window2)
-    
-    df1 = ta.add_all_ta_features(df1, open="open", high="high", low="low", close="close", volume="volume", fillna=True)
-    df2 = ta.add_all_ta_features(df2, open="open", high="high", low="low", close="close", volume="volume", fillna=True)
-    df2 = df2.head(window1)
-    for col in df1.columns:
-        if not (df1[col] == df2[col]).all():
-            print(col)
-            
-    df1["trend_vortex_ind_pos"].plot()
-    df2["trend_vortex_ind_pos"].plot()
-    
-    col="others_dr"
-    sum((df2[col]-df1[col])!=0)
-    """
-    # non conformant features...
-    others_dr
-    volume_vpt
-    trend_vortex_ind_pos
-    trend_vortex_ind_neg
-    trend_vortex_ind_diff
-    trend_trix
-    trend_dpo
-    trend_kst
-    trend_kst_sig
-    trend_kst_diff
-    trend_visual_ichimoku_a
-    trend_visual_ichimoku_b
-    """
 
 """
     LOAD AND PREPROCESS
@@ -97,10 +64,8 @@ def load_dataset(filepath):
     
     return df
 
-
-def setup_dataset(df, input_shape, output_shape):      
+def setup_dataset(is_cat, df, y_in, input_shape, output_shape):      
     ## Scaling
-    
     # Scale fitting the close prices separately for inverse_transformations purposes later
     close_scaler = RobustScaler()
     
@@ -112,9 +77,30 @@ def setup_dataset(df, input_shape, output_shape):
     df = pd.DataFrame(scaler.fit_transform(df), columns=df.columns, index=df.index)
     # input_shape, output_shape = 30, 1
     # Splitting the data into appropriate sequences
-    x, y = split_sequence(df.to_numpy(), input_shape, output_shape)
-    
+    seq = df.values
+    # Creating a list for both variables
+    X, y = [], []
+    i=0
+    for i in range(len(seq)):
         
+        # Finding the end of the current sequence
+        end = i + input_shape
+        out_end = end + output_shape
+        
+        # Breaking out of the loop if we have exceeded the dataset's length
+        if out_end > len(seq):
+            break
+        
+        # Splitting the sequences into: x = past prices and indicators, y = prices ahead
+        if is_cat:
+            seq_x, seq_y = seq[i:end, :], y_in[end,:]
+        else:
+            seq_x, seq_y = seq[i:end, :], seq[end:out_end]
+        
+        X.append(seq_x)
+        y.append(seq_y)
+    
+    x,y = np.array(X), np.array(y)        
     #split in train and validation data
     # X_train, X_val,y_train, y_val = train_test_split(X,y, shuffle=False)
     # permutate the train data 
@@ -124,79 +110,66 @@ def setup_dataset(df, input_shape, output_shape):
     X_train = X_train[perm]
     y_train = y_train[perm]
     """
-    return x, y, close_scaler
+    return df, x, y, close_scaler
 
 
 """
     TRAIN THE MODEL!
 """
 
-def setup_model(lookback_interval, lookahead_interval, features, out, **kwargs):
-    # How many periods looking back to learn
-    # How many periods to predict
-    # Features 
-
-    # Instatiating the model
-    model = Sequential()
-    
-    # Activation
-    activ = "tanh"
-    
-    # Input layer
-    model.add(LSTM(90, 
-                   activation=activ, 
-                   return_sequences=True, 
-                   input_shape=(lookback_interval, features)))
-    
-    # Hidden layers
-    layer_maker(model,
-                n_layers=2, 
-                n_nodes=30, 
-                activation=activ)
-    
-    # Final Hidden layer
-    model.add(LSTM(60, activation=activ))
-    
-    # Output layer
-    model.add(Dense(out))
-    
-    # Compiling the data with selected specifications
-    model.compile(optimizer='adam', loss='mse', metrics=['accuracy'])
-    return model
-
 
 def train_init(model, init_interval, x, y, cbs=None):
     #baseline training with x%
     x_t = x[0:init_interval,:,:]
     y_t = y[0:init_interval]
-    
+        
     hist = model.fit(x_t, 
                      y_t, 
-                    epochs=25, 
-                    batch_size=64, 
-                    validation_split=0.1,
-                    callbacks=cbs)
+                    epochs=150, 
+                    shuffle=False,
+                    batch_size=64,
+                    # validation_split=0.1,
+                    callbacks=cbs
+                )
 
     return hist, model
 
 
+"""
+iteration = 0
+lookback_interval = 5
+features = options["features"]"""
 def predict_one_step(model, x, iteration, lookback_interval, features):
     #model, df, iteration, lookback_interval, features
     #iteration, lookback_interval, features = i, options["lookback_interval"], options["features"]
     if isinstance(x, pd.DataFrame):
-        x_ = x.iloc[iteration-lookback_interval:iteration]
+        x_ = x.iloc[iteration]
     else:
-        x_ = x[iteration-lookback_interval:iteration,:,:]
+        x_ = x[iteration,:,:]
 
     # Predicting using rolling intervals
-    yhat = model.predict(x_)
+    yhat = model.predict(x_.reshape(1, lookback_interval, features))
 
     # Transforming values back to their normal prices
     yhat = close_scaler.inverse_transform(yhat)[0]
+    ytrue = close_scaler.inverse_transform(np.array(x[iteration+1,-1,0]).reshape(1,-1))[0][0]
 
     # DF to store the values and append later, frequency uses business days
-    return (df.index[iteration], yhat[-1])
+    return (df.index[iteration+lookback_interval], yhat[-1], ytrue)
     
+
+def predict_categorical(model, x, iteration, lookback_interval, features):
+    #model, df, iteration, lookback_interval, features
+    #iteration, lookback_interval, features = i, options["lookback_interval"], options["features"]
+    if isinstance(x, pd.DataFrame):
+        x_ = x.iloc[iteration]
+    else:
+        x_ = x[iteration,:,:]
+
+    # Predicting using rolling intervals
+    yhat = model.predict(x_.reshape(1, lookback_interval, features))
+    yhat = np.argmax(yhat)
+    return (df.index[iteration+lookback_interval], yhat) 
 
 
 def retrain(model, i, replay_buffer, x, y):
@@ -210,25 +183,48 @@ def retrain(model, i, replay_buffer, x, y):
                     y_t, 
                     epochs=3, 
                     batch_size=64, 
+                    shuffle=False,
                     verbose=0,
-                    validation_split=0.1,
-                    callbacks=[rlrop, es_cb])
+                    validation_split=0.1)
     return history, model
 
 
 # train, predict for each step after the init interval, 
 # do not go further than  we can becase we have no further data
-def loop(model,init_interval, x, df, options, train=True, verbose=1):
+def loop(model,start, end, x, df, options, train=True, verbose=2, result_cb=None):
     results = []
-    init_interval = max(init_interval, options["lookback_interval"])
-    for i in range(init_interval, len(x)-options["lookback_interval"]):
-        # print the current timetamp
-        ts, pred = predict_one_step(model, x, i, options["lookback_interval"], options["features"])
-       
-        actual_close = df["close"].iloc[i]
-        results.append([ts, pred, actual_close])
+    last_possible_timestep = len(x)
     
-        if verbose == 1:
+    if end == -1:
+        end = last_possible_timestep
+    
+       
+    end = min(end, last_possible_timestep)
+    
+    start = max(start, options["lookback_interval"])
+    
+    if verbose>=1:
+        print("-"*40)
+        if train:
+            print("TRAINING AND EVALUATION")
+        else:
+            print("ONLY EVALUATION")
+        print(f"iterating over timespan {df.index[start]}[{start}] to {df.index[end]}[{end}]")
+        print("")
+    
+    for i in range(start, end):
+        # print the current timetamp
+        # ts, pred, ytrue = predict_one_step(model, x, i, options["lookback_interval"], options["features"])
+        ts, pred = predict_categorical(model, x, i, options["lookback_interval"], options["features"])
+        
+        actual_close = df["close"].iloc[i+options["lookback_interval"]]
+        result = [ts, pred, actual_close]
+        results.append(result)
+        
+        if result_cb:
+            result_cb(*result)
+            
+        if verbose >= 2:
             print(f"predicting: {df.index[i]}:\t{pred:.4f} | {actual_close:.4f}")
         
         if train:
@@ -267,14 +263,18 @@ def plot_result(results):
     plt.legend()
     plt.show()
     
+    
+
+
 #%%
 
+
 options = {
-    "filepath": "data/stocks/SPY.csv",
-    "lookback_interval":40,
-    "lookahead_interval": 2,
+    "filepath": "data/stocks/^GSPC.csv",
+    "lookback_interval":20,
     "features" : "auto",
-    "out": 1
+    "is_categorical": True,
+    "out": 3
 }
 
 training_fraction = 0.4
@@ -283,61 +283,113 @@ df = load_dataset(options["filepath"])
 
 df_orig = df.copy()
 
-x, y, close_scaler = setup_dataset(df, 40, options["out"])
+
+trunc_features = True
+if trunc_features:
+    # macd roc wr mov rsi close
+    df = df.filter(["close", "trend_macd","momentum_roc",  "momentum_wr", "volume_em", "momentum_rsi"], axis=1)
+
+is_category = True
+if is_category:
+    
+    temp = (df_orig["close"] - df_orig["close"].shift(1)).shift(-1)/df_orig["close"]
+    
+    
+    threshold = 0.005
+    mask_pos = temp > threshold
+    
+    mask_neg = temp < -threshold
+    
+    # set all to 0 - no action
+    temp[:] = 0
+    # set all positive to 2 - long option
+    temp[mask_pos] = 2
+    # set all negative to 1 - short option
+    temp[mask_neg] = 1
+    temp = to_categorical(temp)
+    df, x, y, close_scaler = setup_dataset(True, df, temp, options["lookback_interval"], options["out"])
+
+else:
+    df, x, y, close_scaler = setup_dataset(False, df, None, options["lookback_interval"], options["out"])
+
+
+
+
 init_interval = int(len(x) * training_fraction)
 # set features correctly
 if options["features"] == "auto":
     options["features"] = x.shape[-1]
 
 
-model = setup_model(**options)
+# eof2016 = pd.Timestamp("2016-12-30")
+# eof2016_index = df.index.get_loc(eof2016)
 
+eof2017 = pd.Timestamp("2017-12-29")
+eof2017_index = df.index.get_loc(eof2017)
 
-rlrop = ReduceLROnPlateau(monitor='loss', factor=0.1, patience=10, min_delta=0.001)
-es_cb = EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=5, verbose=0, restore_best_weights=True)
+eof2018 = pd.Timestamp("2018-12-31")
+eof2018_index = df.index.get_loc(eof2018)
 
-hist, model = train_init(model, init_interval, x, y, cbs=[rlrop, es_cb])
+eof2019 = pd.Timestamp("2019-12-31")
+eof2019_index = df.index.get_loc(eof2019)
+
+eofds_index = len(df)
+
+# model = build_lstm_model(**options)
+model = build_tcn_model(**options)
+
+rlrop = ReduceLROnPlateau(monitor='loss', factor=0.1, patience=10, min_delta=0.00001)
+es_cb = EarlyStopping(monitor='acc', min_delta=1e-4, patience=5, verbose=0, restore_best_weights=True)
+
+hist, model = train_init(model, eof2017_index, x, y, cbs=[rlrop, es_cb])
 
 visualize_training_results(hist)
 
-
 #%%
-
-# make a in the loop train predict loop over the rest of the data instead
-results, model = loop(model, init_interval, x, df_orig, options, train=True)
-
-#%%
-
 
 # run a full simulation run from the start:
 # 40 -> because we currently use 40 timesteps. this will be checked in the function anyways
 #   here just added for clarity
+"""
 try:
     results
 except NameError:
-   results, model = loop(model, 40, x, df_orig, options, train=False, verbose=0)
+   results2017, model = loop(model, eof2016_index, eof2017_index,  x, df_orig, options, train=False, verbose=1)
+   results2018, model = loop(model, eof2017_index, eof2018_index,  x, df_orig, options, train=False, verbose=1)
+   results2019, model = loop(model, eof2018_index, eof2019_index,  x, df_orig, options, train=False, verbose=1)
+
+plot_result(results2017)
+plot_result(results2018)
+plot_result(results2019) 
+"""
 
 
-plot_result(results)
+# results2017, model = loop(model, eof2016_index, eof2017_index, x, df_orig, options, train=True)
+results2018, model = loop(model, eof2017_index, eof2018_index, x, df_orig, options, train=True)
+results2019, model = loop(model, eof2018_index, eof2019_index, x, df_orig, options, train=True)
+# results2020, model = loop(model, eof2019_index, len(x), x, df_orig, options, train=True)
 
+# plot_result(results2017)
+plt.figure()
+plot_result(results2018)
+plot_result(results2019)
+# plot_result(results2020)
 
+baseline_results= pd.concat(pd.DataFrame(f) for f in [results2018, results2019])
+baseline_results.columns = ['time', 'predicted', 'actual']
+baseline_results.index = baseline_results["time"]
+baseline_results.drop("time", inplace=True, axis=1)
 
-
+baseline_results.to_pickle("data/cache/2020_05_13_baseline.pkl")
 #%%
 
-def decision_model(act, pred):
-    pass
 
-predictions
-actual.loc[pd.date_range("2016-06-13", "2016-06-17")]
-
-((actual.shift(1) - predictions)/actual.shift(1)).dropna()
-
+_, _ = loop(model, eof2017_index, eof2018_index, x, df_orig, options, train=False)
 
 # first job: order into classes instead of regression
 # second job: create useful prediction / value function for comparability
 # fourth job: add additional features (currently only one instrument)
-
+# fifth job: schaue auf anleihen die reagierne manchmal früher - generell siehe daniellos idee: schauen welche märkte nacheilen oder voreilen und dann auf den nacheilenden märkten traden
 
 
 

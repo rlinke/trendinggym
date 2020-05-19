@@ -161,10 +161,12 @@ def main():
     
     df2.plot()
 	
+    
+#%%
 if __name__ == '__main__':
-	main()
-
-	elements = 	"""economy 
+    main()
+    
+    elements = 	"""economy 
         energy
         bonds 
         crisis
@@ -255,5 +257,5 @@ if __name__ == '__main__':
         train"""
         
     elements = elements.split('\n')
-    elements = [e.strip() for e in neff]
+    elements = [e.strip() for e in elements]
     

@@ -61,7 +61,6 @@ tickersnasdaq = si.tickers_nasdaq()
 
 all_tickers = set(tickerssp500 + tickersdow + tickersnasdaq)
 
-
 start_date = pd.Timestamp("2011-01-01")
 end_date = pd.Timestamp.now()
 
@@ -125,4 +124,33 @@ with open(f'data/yahoo_recommendation/{y:04}-{m:02}-{d:02}.pkl', 'wb') as f:
 
 # get the stock data --> this is historic available so no rush to get it
 # stock data
-# stock_data = get_stock_data(ticker, start_date, end_date)
+    
+stock_data = get_stock_data("^GSPC", start_date, end_date)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

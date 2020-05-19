@@ -14,7 +14,7 @@ def split_sequence(seq, n_steps_in, n_steps_out):
     """
     Splits the multivariate time sequence
     """
-    
+    seq = seq.values
     # Creating a list for both variables
     X, y = [], []
     
@@ -36,7 +36,7 @@ def split_sequence(seq, n_steps_in, n_steps_out):
     
     return np.array(X), np.array(y)
   
-  
+         
 def visualize_training_results(results):
     """
     Plots the loss and accuracy for the training and testing data
@@ -44,40 +44,35 @@ def visualize_training_results(results):
     history = results.history
     fig, ax = plt.subplots(2,1, figsize=(16,5))
     ax1 = ax[0]
-    ax1.plot(history['val_loss'])
     ax1.plot(history['loss'])
-    ax1.legend(['val_loss', 'loss'])
+    
+    if "val_loss" in history:
+        ax1.plot(history['val_loss'])
+        ax1.legend(['val_loss', 'loss'])
+    else:
+        ax1.legend(['loss'])
     ax1.title.set_text('Loss')
     ax1.set_xlabel('Epochs')
     ax1.set_ylabel('Loss')
     
+    
+    if "val_acc" in history or "val_accuracy" in history:
+        if "val_accuracy" not in history:
+            history["val_accuracy"] = history["val_acc"]
+            history["accuracy"] = history["acc"]
+    
     ax2 = ax[1]
-    ax2.plot(history['val_accuracy'])
     ax2.plot(history['accuracy'])
-    ax2.legend(['val_accuracy', 'accuracy'])
+    if "val_accuracy" in history:
+        ax2.plot(history['val_accuracy'])
+        ax2.legend(['val_accuracy', 'accuracy'])
+    else:
+        ax2.legend(['accuracy'])
     ax2.title.set_text('Accuracy')
     ax2.set_xlabel('Epochs')
     ax2.set_ylabel('Accuracy')
     plt.show()
     
-    
-def layer_maker(model, n_layers, n_nodes, activation, drop=None, d_rate=.5):
-    """
-    Creates a specified number of hidden layers for an RNN
-    Optional: Adds regularization option - the dropout layer to prevent potential overfitting (if necessary)
-    """
-    
-    # Creating the specified number of hidden layers with the specified number of nodes
-    for x in range(1,n_layers+1):
-        model.add(LSTM(n_nodes, activation=activation, return_sequences=True))
-
-        # Adds a Dropout layer after every Nth hidden layer (the 'drop' variable)
-        try:
-            if x % drop == 0:
-                model.add(Dropout(d_rate))
-        except:
-            pass
-          
           
 def val_rmse(df1, df2):
     """

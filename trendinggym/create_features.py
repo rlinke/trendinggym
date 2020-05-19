@@ -79,6 +79,17 @@ def create_indicators(stock_dict, list_of_stocks, path):
         
 if __name__ == '__main__':
     
+    ### richlink mod for using it
+    # read df from csv file with 
+    richlink = True
+    if richlink:
+        filepath ="data/stocks/^GSPC.csv"
+        df = pd.read_csv(filepath, index_col=0)
+    
+        stock_dict = {"^GSPC": df}
+        ticker_list = ["^GSPC"]
+        
+    # df.columns = [str.capitalize(cl)+"_^GSPC" for cl in list(df.columns)]
 	create_indicators(stock_dict, ticker_list, save_path)
     
     

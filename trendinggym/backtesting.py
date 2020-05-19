@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 
-from predict_mdl import load_feature_data, preprocessing, prepare_data, create_train_mdl
+from trendinggym.predict_mdl import load_feature_data, preprocessing, prepare_data, create_train_mdl
 
 
 
@@ -359,11 +359,12 @@ def execute():
     
     
     raw_df = load_feature_data()
+    raw_df.index = pd.to_datetime(raw_df.index)
     
     ticker = '^GSPC'
     
     # 1. Init train 
-    init_mdl, df_x, df_y = init_train( raw_df[start_date:end_train_date])
+    init_mdl, df_x, df_y = init_train( raw_df.loc[start_date:end_train_date])
     
     # 2. Calc baseline (= reference performance)
     ref_profit, value_baseline = calc_baseline_profit(raw_df[end_train_date:end_date], ticker)
