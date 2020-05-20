@@ -30,7 +30,10 @@ from tensorflow.keras import Model as tfModel
 
 from tcn import TCN, tcn_full_summary
 
-
+from numpy.random import seed
+seed(1)
+from tensorflow import set_random_seed
+set_random_seed(2)
 
 # Paramater
 path = "./data/stock_feature_data.csv"
@@ -72,6 +75,7 @@ def calc_swings(df):
 
 def preprocessing(df):
     
+    
     # Features -> better solution 
     x_list = ['^GSPC_macd','^GSPC_roc','^GSPC_wr','^GSPC_mov','^GSPC_rsi',
               '^GSPC_close','^GSPC_open','^GSPC_high','^GSPC_low','^GSPC_vol']
@@ -81,7 +85,7 @@ def preprocessing(df):
     # Calc percentage of next day based on actual day with > 1 %
     df_y_train = df_train['diff']/df_train['0']
 
-    diff = 0.005
+    diff = 0.01
     df_y_train = (df_y_train > diff) * 2 + (df_y_train < -diff) * 1
     
     # Get swing indicator
@@ -90,6 +94,23 @@ def preprocessing(df):
     df_x_train = df_train[x_list]
     #df_x_train = df_train[[col for col in df.columns if col not in df_y_train.columns]]
     
+    
+    # Combine trend data
+    if True:
+        
+        with open("./trend/raw_trend.pickle", 'rb') as handle:
+            trend_data = pickle.load(handle)
+                      
+        df_temp = pd.DataFrame()
+        for key, df_ in trend_data.items():
+            df_temp[key[:-7]+'_scale'] = df_['scale']
+            
+        df_trend = df_temp[df_temp.index.isin(df_x_train.index)]
+    
+    
+        df_x_train = pd.concat([df_x_train, df_trend], axis=1)
+        
+        
     
     return df_x_train, df_y_train, df_swing #pd.concat([df_y_train, df_swing], axis=1)
 
@@ -135,17 +156,18 @@ def split_sequences_lstm(sequences, n_steps_in):
 def mdl_lstm(n_steps, batch_size, n_features, dropout1, dropout2):
     
     model = Sequential()
-    model.add(LSTM(50, activation='tanh', 
+    model.add(LSTM(25, activation='tanh', 
                    stateful=False,
                    return_sequences=True, 
-                   input_shape=(n_steps, n_features)
+                   input_shape=(n_steps, n_features), 
+                   recurrent_dropout = dropout1
                    #batch_input_shape=(batch_size, n_steps, n_features)
                    )
               )
     
-    model.add(LSTM(50, activation='tanh', 
+    model.add(LSTM(20, activation='tanh', 
                    stateful=False, 
-                   recurrent_dropout = dropout1)
+                   recurrent_dropout = dropout2)
               )
     
     #model.add(SeqSelfAttention(attention_activation='tanh'))
@@ -165,10 +187,10 @@ def mdl_tcn(timesteps, input_dim):
     
     o = TCN(nb_filters=64, kernel_size=6, 
               return_sequences=True, activation='tanh',
-              dropout_rate=0.1)(i)  
+              dropout_rate=0.2)(i)  
     
-    o = TCN(nb_filters=64, kernel_size=4, nb_stacks=1, 
-              dilations=[1, 2, 4, 8, 16, 32], padding='causal', 
+    o = TCN(nb_filters=32, kernel_size=4, nb_stacks=1, 
+              dilations=[1, 2, 4, 8, 16], padding='causal', 
               use_skip_connections=True, dropout_rate=0.4,
               activation='tanh',return_sequences=False)(o)
     
@@ -242,8 +264,8 @@ def create_train_mdl(X, Y_en, Y_s):
     n_features = X.shape[2] # = feature X.shape[2] # Note: 2 -> lstm format
     
     # Create and train model
-    dropout1 = 0.4
-    dropout2 = 0.2
+    dropout1 = 0.1
+    dropout2 = 0.3
     bs = 16
     
     # Create LSTM Model
@@ -252,9 +274,10 @@ def create_train_mdl(X, Y_en, Y_s):
     rlrop = ReduceLROnPlateau(monitor='train_loss', factor=0.1, patience=20, min_delta=0.005)
     
     hist1 = model_lstm.fit(X,Y_en, 
-                        epochs=400,
+                        epochs=100,
                         shuffle = False,
                         batch_size = bs,
+                        validation_split=0.1,
                         #sample_weight = weights_array,
                         callbacks=[rlrop],
                         verbose = 2)
@@ -264,8 +287,9 @@ def create_train_mdl(X, Y_en, Y_s):
     model_tcn = mdl_tcn(n_steps_in, n_features)
     
     hist2 = model_tcn.fit(X, Y_s, 
-                          epochs=400, 
-                          validation_split=0.0)
+                          epochs=100, 
+                          validation_split=0.1,
+                          verbose=1)
     
     
     return model_lstm, model_tcn

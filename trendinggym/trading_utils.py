@@ -37,32 +37,44 @@ def money_managment():
 
 def combine_swing(action, swing, state):
     
-    if state:
-        s_thr = 0
-    else:
-        s_thr = 0.05
-    
-    
+    # Init
+    external_stopp = False
     swing_action = 0
+
+    # Set the threshold for the swing predictor
+    s_thr = 0.03
+    
+    # If we own stocks, sell in case the swing predictor is indicating a high contra signal
+    
+    if state == 1 and swing > (s_thr*2): # if we are short
+        external_stopp = True
+    elif state == 2 and swing < (s_thr*2): # if we are long
+        external_stopp = True
+    
+    
+    # Prove a buy action
     if action == 2:
         if swing < s_thr:
-            action = 0
+            action = 0 #overwrite
         else:
-            swing_action = 2
+            swing_action = 2 # accept action
+            
+    # Prove a short action
     if action == 1:
         if swing > -s_thr:
-            action = 0
+            action = 0 #overwrite
         else:
-            swing_action = 1
+            swing_action = 1 # accept action
             
-    return action, swing_action
+    return action, swing_action, external_stopp
 
 
 
 
-def stopp_strategy(action, act_price, state, price_since_action):
+def stopp_strategy(action, act_price, state, price_since_action, swing):
     '''
-    
+    Check if your loss is below threshold (loss protection) -> sell
+    Check if the swing prediction indicate a change and we are positiv -> sell
 
     Parameters
     ----------
@@ -84,30 +96,55 @@ def stopp_strategy(action, act_price, state, price_since_action):
 
     '''
     
-    threshold = 0.05
+    threshold_p = 0.10
+    threshold_n = 0.10
+    swing_thr = 0.3
     profit = 1
     action_stopp_stratgy = 0
 
-    
+    # save last price
     if action != 0:
         price_since_action = act_price
         
     else:
-        # Long position
+        # Long position -> calc profit
         if state == 2:
-            profit = (act_price/price_since_action) + threshold
+            profit = (act_price/price_since_action) 
             
-        # Short position
+        # Short position -> calc profit
         elif state == 1: 
-            profit = (price_since_action/act_price) + threshold
+            profit = (price_since_action/act_price)
         
-        
-        if profit < 1:
+        # If profit is below threshold -> sell
+        if profit < (1 - threshold_n):
             # Need to sell stocks
             logging.info('---> Need to sell stocks due to stopp stratagy')
             action_stopp_stratgy = 3
+            
+        # Check swing indicator and actual profit to sell gains
+        if profit > (1 + threshold_p):
+            
+            # Long position
+            if state == 2:
+                if swing < -swing_thr:
+                    logging.info('---> Need to sell stocks due to stopp stratagy - long')
+                    action_stopp_stratgy = 3
+                    
+            # short position
+            elif state == 1:
+                if swing > -swing_thr:
+                    logging.info('---> Need to sell stocks due to stopp stratagy - short')
+                    action_stopp_stratgy = 3
+                
     
     return price_since_action, action_stopp_stratgy
 
 
-
+def plot_tracking(dict_):
+    
+    
+    
+    sp = tracker_dict['stock_price']
+    t = tracker_dict['day']
+    
+    plt.plot(sp,t)

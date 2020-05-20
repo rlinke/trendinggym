@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import pickle
 from pandas.tseries.offsets import BDay
+from collections import defaultdict
 
 from trading_utils import load_feature_data, combine_swing, stopp_strategy
 
@@ -21,6 +22,11 @@ from predict_mdl import *
 import logging
 import logging.handlers
 import os
+
+from numpy.random import seed
+seed(1)
+from tensorflow import set_random_seed
+set_random_seed(2)
  
 handler = logging.handlers.WatchedFileHandler(
     os.environ.get("LOGFILE", "./LOG_portfolio.log"))
@@ -131,7 +137,9 @@ def init_train(df, flag):
 def online_portfolie(action, act_price, 
                      act_portfolio, act_stocks,
                      action_flag, state,
-                     price_since_action_in):
+                     price_since_action_in,
+                     external_stopp,
+                     swing):
     
     '''
     Parameter definition:
@@ -145,13 +153,14 @@ def online_portfolie(action, act_price,
     print("Amount of stocks {}".format(act_stocks))
     
     
-    # Check for stopp_strategy
+    # Check for stopp_strategy and external stopp
     price_since_action, action_stopp_stratgy = stopp_strategy(action, 
                                                               act_price, 
                                                               state, 
-                                                              price_since_action_in)
+                                                              price_since_action_in,
+                                                              swing)
     
-    if action_stopp_stratgy == 3:
+    if action_stopp_stratgy == 3 or external_stopp:
         
         new_portfolio = (act_price * act_stocks) - order_cost
         new_stocks = 0
@@ -196,7 +205,7 @@ def online_portfolie(action, act_price,
         
         
         
-    # Sell - depending on short or long position
+    # No action - hold stocks
     elif action == 0 and action_flag == True:
         
         new_portfolio = act_portfolio
@@ -246,11 +255,11 @@ def online_portfolie(action, act_price,
     return new_portfolio, new_stocks, action_flag, state, price_since_action
     
 
+
+
 def make_forecast(mdl_lstm, mdl_tcn, X):
     return np.argmax(mdl_lstm.predict(X), axis=-1)[0], mdl_tcn.predict(X)[0][0]
     
-
-
 def update_mdl(model_lstm, model_tcn, X_update, Y_en_update, Y_swing):
     
     updates = 5
@@ -292,7 +301,8 @@ def online_train(lstm_, tcn_, df):
     action_flag = False
     state = 0
     psa = 0   
-    track_dict = {}
+    track_dict = defaultdict(list)
+
 
     #ts = pd.Timestamp(dt.datetime.now())
     #ts + BDay(5)
@@ -315,22 +325,23 @@ def online_train(lstm_, tcn_, df):
         logging.info("Stock price {}".format(act_stock_value))
         
         # TRACKING
-        track_dict['day'] = day
-        track_dict['stock_price'] = act_stock_value
-        track_dict['forecast'] = df_y_forecast
-        track_dict['swing'] = round(swing,4)
-        track_dict['action_raw'] = action
-        track_dict['portfolio'] = act_portfolio
-        track_dict['state'] = state
-        track_dict['action_flag'] = action_flag
-        track_dict['psa'] = psa
+        track_dict['day'].append(day)
+        track_dict['stock_price'].append(act_stock_value)
+        track_dict['forecast'].append(df_y_forecast)
+        track_dict['swing'].append(round(swing,4))
+        track_dict['action_raw'].append(action)
+        track_dict['portfolio'].append(act_portfolio)
+        track_dict['state'].append(state)
+        track_dict['action_flag'].append(action_flag)
+        track_dict['psa'].append(psa)
 
         # Take swings into account -> just use action (long/short) if we expect a swing
-        action, swing_action = combine_swing(action, swing, state)
+        action, swing_action, external_stopp = combine_swing(action, swing, state)
         
-        track_dict['action'] = action
+        track_dict['action'].append(action)
+        track_dict['external_stopp'].append(external_stopp)
 
-        
+
         # 2. Update Portfolio
         new_portfolio, new_stocks, new_action_flag, new_state, new_psa = online_portfolie(action, 
                                                                              act_stock_value, 
@@ -338,10 +349,23 @@ def online_train(lstm_, tcn_, df):
                                                                              act_stocks,
                                                                              action_flag, 
                                                                              state,
-                                                                             psa)
+                                                                             psa,
+                                                                             external_stopp,
+                                                                             swing)
+        
+        track_dict['portfolio_update'].append(new_stocks*act_stock_value)
+
         
         logging.info("Portfolio status {}, {} , {}, {}".format(new_portfolio, new_stocks, new_action_flag, new_state))
-        print("Portfolio status {}, {} , {}, {}, {}".format(new_portfolio, new_stocks, new_action_flag, new_state, round(swing,3)))
+        print("Portfolio status {} , {} , {} , {} , {} , {}".format(round(new_portfolio,3), 
+                                                            new_stocks, 
+                                                            new_action_flag, 
+                                                            new_state, 
+                                                            round(swing,3),
+                                                            int(new_stocks*act_stock_value)
+                                                            )
+                                                          )
+        
 
         # 3. Update model with new day
         df_x_train, df_y_train, df_y_swing_train = preprocessing(df[start_date:day])
